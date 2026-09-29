@@ -1,0 +1,69 @@
+name: CI/CD
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run Pytest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit and integration tests
+        env:
+          AGENT_API_KEY: "ci-dummy"
+          REDIS_URL: "redis://localhost:6379"
+        run: |
+          pytest tests/test_cp1.py tests/test_cp2.py tests/test_cp3.py tests/test_cp4.py --ignore=tests/test_cp5.py --ignore=tests/test_bonus_cicd.py -v
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t day12-agent:latest .
+
+  deploy:
+    name: Deploy and Smoke Test
+    needs: [test, build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Cloud
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -n "$RAILWAY_TOKEN" ]; then
+            echo "Deploying to Railway..."
+            npm install -g @railway/cli
+            railway up --detach --service agent
+          else
+            echo "RAILWAY_TOKEN secret not configured; using active Railway service."
+          fi
+
+      - name: Smoke test
+        run: |
+          curl -fsS "https://k4-l3b-day12-phamdinhhai-2a202602482-cloudservic-production.up.railway.app/health"
